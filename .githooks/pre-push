@@ -1,0 +1,16 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly ALLOWED_REPO='Olivermugambi/ameru-cultural-library-backend'
+url="${2%.git}"
+url="${url%/}"
+
+case "$url" in
+  "https://github.com/${ALLOWED_REPO}"|"git@github.com:${ALLOWED_REPO}"|"ssh://git@github.com/${ALLOWED_REPO}")
+    ;;
+  *)
+    printf 'PROJECT POLICY: push blocked; only %s is authorized.\n' "$ALLOWED_REPO" >&2
+    exit 77
+    ;;
+esac
+

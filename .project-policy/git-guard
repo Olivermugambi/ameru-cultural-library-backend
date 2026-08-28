@@ -1,0 +1,64 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+readonly ALLOWED_REPO='Olivermugambi/ameru-cultural-library-backend'
+readonly ALLOWED_HTTPS="https://github.com/${ALLOWED_REPO}.git"
+readonly ALLOWED_SSH="git@github.com:${ALLOWED_REPO}.git"
+
+die() {
+  printf 'PROJECT POLICY: remote Git access is restricted to %s\n' "$ALLOWED_REPO" >&2
+  exit 77
+}
+
+normalize_url() {
+  local value="${1%.git}"
+  value="${value%/}"
+  case "$value" in
+    "https://github.com/${ALLOWED_REPO}"|"git@github.com:${ALLOWED_REPO}"|"ssh://git@github.com/${ALLOWED_REPO}")
+      return 0
+      ;;
+    *)
+      return 1
+      ;;
+  esac
+}
+
+verify_configured_remotes() {
+  local remote url pushurl
+  while IFS= read -r remote; do
+    [[ "$remote" == origin ]] || die
+    url="$(command git remote get-url "$remote")"
+    pushurl="$(command git remote get-url --push "$remote")"
+    normalize_url "$url" || die
+    normalize_url "$pushurl" || die
+  done < <(command git remote)
+}
+
+command_name=''
+for arg in "$@"; do
+  [[ "$arg" == -* ]] && continue
+  command_name="$arg"
+  break
+done
+
+case "$command_name" in
+  clone)
+    for arg in "$@"; do
+      [[ "$arg" == -* || "$arg" == clone ]] && continue
+      normalize_url "$arg" || die
+      break
+    done
+    ;;
+  fetch|pull|push|ls-remote|remote|submodule)
+    verify_configured_remotes
+    for arg in "$@"; do
+      case "$arg" in
+        *://*|git@*:*|github.com:*|github.com/*)
+          normalize_url "$arg" || die
+          ;;
+      esac
+    done
+    ;;
+esac
+
+exec git "$@"

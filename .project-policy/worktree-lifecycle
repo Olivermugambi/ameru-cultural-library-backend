@@ -1,0 +1,105 @@
+#!/usr/bin/env bash
+set -euo pipefail
+
+die() {
+  echo "worktree-lifecycle: $*" >&2
+  exit 1
+}
+
+usage() {
+  cat >&2 <<'EOF'
+Usage:
+  .project-policy/worktree-lifecycle create ISSUE SLUG MILESTONE
+  .project-policy/worktree-lifecycle cleanup ISSUE
+EOF
+  exit 2
+}
+
+repo_root="$(git rev-parse --show-toplevel 2>/dev/null)" || die "run inside a Git checkout"
+repo_name="$(basename "$repo_root")"
+worktree_root="${WORKTREE_ROOT:-$(dirname "$repo_root")/${repo_name}-worktrees}"
+
+canonical_path() {
+  local path="$1"
+  if [[ -e "$path" ]]; then
+    (cd "$path" && pwd -P)
+  else
+    local parent
+    parent="$(dirname "$path")"
+    mkdir -p "$parent"
+    echo "$(cd "$parent" && pwd -P)/$(basename "$path")"
+  fi
+}
+
+validate_issue() {
+  [[ "$1" =~ ^[1-9][0-9]*$ ]] || die "issue number must be a positive integer"
+}
+
+validate_root() {
+  local root_real repo_real
+  root_real="$(canonical_path "$worktree_root")"
+  repo_real="$(canonical_path "$repo_root")"
+  case "$root_real/" in
+    "$repo_real/"*) die "worktree root must not be inside the repository" ;;
+  esac
+}
+
+create_worktree() {
+  [[ $# -eq 3 ]] || usage
+  local issue="$1" slug="$2" milestone="$3"
+  validate_issue "$issue"
+  [[ "$slug" =~ ^[a-z0-9]+(-[a-z0-9]+)*$ ]] || die "slug must use lowercase words separated by hyphens"
+  [[ "$milestone" =~ ^[a-z0-9]+([.-][a-z0-9]+)*$ ]] || die "milestone must be a lowercase identifier"
+  validate_root
+
+  [[ "$(git -C "$repo_root" branch --show-current)" == "main" ]] || die "base checkout must be on main"
+  [[ -z "$(git -C "$repo_root" status --porcelain)" ]] || die "base checkout is dirty"
+  git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/main || die "origin/main is unavailable; synchronize it first"
+  [[ "$(git -C "$repo_root" rev-parse main)" == "$(git -C "$repo_root" rev-parse origin/main)" ]] ||
+    die "main must exactly match the updated origin/main"
+
+  local matches branch target
+  matches="$(git -C "$repo_root" for-each-ref --format='%(refname:short)' refs/heads | awk -v n="$issue" '$0 ~ "/" n "-"')"
+  [[ -z "$matches" ]] || die "issue $issue already maps to branch: $matches"
+  branch="$milestone/$issue-$slug"
+  target="$worktree_root/issue-$issue"
+  [[ ! -e "$target" ]] || die "worktree path already exists: $target"
+
+  mkdir -p "$worktree_root"
+  git -C "$repo_root" worktree add -b "$branch" "$target" origin/main
+  echo "created $branch at $target"
+}
+
+cleanup_worktree() {
+  [[ $# -eq 1 ]] || usage
+  local issue="$1"
+  validate_issue "$issue"
+  validate_root
+
+  local target branch branch_tip status cherry
+  target="$worktree_root/issue-$issue"
+  [[ -d "$target" ]] || die "worktree does not exist: $target"
+  branch="$(git -C "$target" branch --show-current)"
+  branch_tip="$(git -C "$target" rev-parse "$branch")"
+  [[ "$branch" =~ /${issue}- ]] || die "worktree branch does not map to issue $issue"
+  status="$(git -C "$target" status --porcelain)"
+  [[ -z "$status" ]] || die "worktree contains uncommitted work; cleanup refused"
+  git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/main || die "origin/main is unavailable; synchronize it first"
+  cherry="$(git -C "$repo_root" cherry origin/main "$branch")"
+  if grep -q '^+' <<<"$cherry"; then
+    die "branch commits are not represented in origin/main; cleanup refused"
+  fi
+
+  git -C "$repo_root" worktree remove "$target"
+  git -C "$repo_root" update-ref -d "refs/heads/$branch" "$branch_tip"
+  echo "removed $target and $branch"
+}
+
+command="${1:-}"
+[[ -n "$command" ]] || usage
+shift
+case "$command" in
+  create) create_worktree "$@" ;;
+  cleanup) cleanup_worktree "$@" ;;
+  *) usage ;;
+esac

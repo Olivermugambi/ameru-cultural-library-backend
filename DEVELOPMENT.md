@@ -21,6 +21,51 @@ pytest
 ruff check .
 ```
 
+## Repository-boundary validation
+
+Bootstrap the boundary in every fresh backend checkout, then run its stable
+validation command:
+
+```bash
+bash .project-policy/install.sh
+python -m pytest tests/test_repository_boundary.py
+```
+
+The backend checkout must have exactly one remote, `origin`, whose fetch and
+push URLs both normalize to the backend repository. Frontend synchronization
+is allowed by cloning its canonical HTTPS or SSH URL into a separate checkout,
+or through the approved connector; it is not allowed by adding the frontend as
+a backend remote.
+
+The test matrix treats exit code `77` as a policy denial. It covers canonical
+HTTPS and SSH URLs with optional `.git` and trailing slash, Git global options,
+clone/fetch/pull/push/ls-remote, remote mutation, submodules, bootstrap, and the
+backend-only pre-push hook. Denial cases use inert fixtures and transport
+sentinels, so no unauthorized repository is contacted.
+
+For fetch, pull, push, and ls-remote, repository operands are parsed separately
+from later refs and refspecs. Only `origin` or a canonical backend URL is a
+valid backend-checkout target; filesystem paths, other remote names, and other
+scp-like hosts fail closed. Clone accepts either allowlisted repository, and a
+submodule-add URL must normalize to one of those same two identities.
+Submodule `set-url` applies the same check to the replacement value before it
+mutates `.gitmodules`. Reference-repository options on clone and submodule
+operations fail closed because they introduce an additional repository access
+surface.
+
+Before a guarded remote operation, the guard inspects effective Git config
+(including included files) and rejects URL rewrites, config includes, custom
+SSH commands, and the external transport protocol. Equivalent command-line and
+environment overrides—including `GIT_CONFIG_COUNT`, `GIT_SSH_COMMAND`, and
+`GIT_EXEC_PATH`—also fail closed. Remove the override rather than bypassing the
+guard. Ordinary credential helpers and HTTPS proxy routing remain Git/host
+configuration responsibilities; this policy validates repository identity but
+is not a network or credential sandbox.
+
+These scripts enforce only guarded shell invocations and pushes through the
+configured hook. Agent instructions govern direct Git binary and connector
+use; the scripts do not claim to sandbox or intercept those independent paths.
+
 ## Implementation order
 1. Approve domain and API contracts.
 2. Add deterministic fixtures only where needed for UI integration.

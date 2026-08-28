@@ -20,6 +20,10 @@ required; do not merely ask to waive this boundary inside the current project.
 
 ## Enforced Git workflow
 
+At the start of every fresh checkout, before any remote Git operation, run
+`bash .project-policy/install.sh`. This validates `origin`, activates the
+repository-local hook, and restores executable permissions to the guard.
+
 Use `.project-policy/git-guard` instead of invoking `git` directly for any
 operation that can contact a remote. The guard permits only this repository and
 rejects alternate remote names, URLs, and repository paths. A repository-local
@@ -28,4 +32,3 @@ rejects alternate remote names, URLs, and repository paths. A repository-local
 Do not alter or bypass `AGENTS.md`, `.project-policy/git-guard`, `.githooks/`,
 `core.hooksPath`, or the `origin` fetch/push URLs unless the user is moving this
 work into a separate project. Changes weakening these controls are prohibited.
-

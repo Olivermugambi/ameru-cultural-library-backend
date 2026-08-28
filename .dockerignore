@@ -1,7 +1,4 @@
 .git
-.github
-.project-policy
-.githooks
 .env
 .venv
 __pycache__

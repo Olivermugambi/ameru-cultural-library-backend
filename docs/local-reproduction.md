@@ -26,7 +26,7 @@ Validate the resolved configuration before contacting the container runtime:
 
 ```bash
 docker compose config
-docker compose build
+docker compose build --no-cache
 docker compose up --wait
 docker compose ps
 ```
@@ -107,6 +107,9 @@ docker compose config
   Python package index; do not remove dependency bounds to obtain a build.
 - Unhealthy service: inspect `docker compose logs app` and confirm the health
   request reaches `/health`.
+- Unexpected endpoint or stale image: record `git rev-parse HEAD`, then run
+  `docker compose build --no-cache` and inspect the packaged route set with
+  `docker compose run --rm --no-deps app python -c "from app.main import app; print(sorted(route.path for route in app.routes))"`.
 - Port collision: choose an unused port with `APP_PORT`; do not edit the
   container's internal port.
 - Configuration error: compare `docker compose config` with `.env.example` and

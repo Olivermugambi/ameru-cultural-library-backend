@@ -69,13 +69,36 @@ def test_dockerfile_pins_python_and_runs_runtime_as_non_root() -> None:
     assert "USER app" in dockerfile
     assert "HEALTHCHECK" in dockerfile
     assert 'CMD ["uvicorn", "app.main:app", "--host", "0.0.0.0", "--port", "8000"]' in dockerfile
+    assert "assert {'/health', '/api/v1', '/openapi.json'} <= paths" in dockerfile
     assert "COPY . ." not in dockerfile
+
+
+def test_test_image_contains_complete_repository_contract_surface() -> None:
+    dockerfile = (ROOT / "Dockerfile").read_text()
+
+    for source in (
+        ".github",
+        ".project-policy",
+        ".githooks",
+        "docs",
+        "tests",
+        ".env.example",
+        ".dockerignore",
+        "compose.yaml",
+        "CONTRIBUTING.md",
+        "DEVELOPMENT.md",
+        "GIT_WORKFLOW.md",
+        "AGENTS.md",
+    ):
+        assert f"COPY {source}" in dockerfile
+    assert "apt-get install -y --no-install-recommends git" in dockerfile
 
 
 def test_docker_context_excludes_local_and_repository_state() -> None:
     ignored = set((ROOT / ".dockerignore").read_text().splitlines())
 
     assert {".git", ".env", ".venv", "__pycache__", ".pytest_cache", ".ruff_cache"} <= ignored
+    assert {".github", ".project-policy", ".githooks"}.isdisjoint(ignored)
 
 
 def test_example_environment_contains_no_assigned_secret() -> None:
@@ -93,7 +116,7 @@ def test_local_reproduction_guide_covers_complete_operator_lifecycle() -> None:
 
     for command in (
         "docker compose config",
-        "docker compose build",
+        "docker compose build --no-cache",
         "docker compose up --wait",
         "curl --fail http://localhost:8000/health",
         "docker compose --profile test run --rm tests",

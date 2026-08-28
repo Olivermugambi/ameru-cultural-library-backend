@@ -39,6 +39,14 @@ named frontend counterpart. The backend checkout must keep its own canonical
 GitHub connector. A repository-local `pre-push` hook independently ensures that
 commits made from this backend checkout can only be pushed to the backend.
 
+The shell guard and pre-push hook are technical controls only for invocations
+that pass through them. They cannot intercept an agent that deliberately calls
+another Git binary, changes Git configuration outside the guarded workflow, or
+uses a connector. The mandatory scope above governs those surfaces: approved
+connector access is limited to the same two repositories, and direct remote Git
+commands remain prohibited. Run the automated boundary suite with
+`python -m pytest tests/test_repository_boundary.py`.
+
 Do not alter or bypass `AGENTS.md`, `.project-policy/git-guard`, `.githooks/`,
 `core.hooksPath`, the two-repository allowlist, or the backend `origin` URLs
 without an explicit user request. Adding any third repository is prohibited.

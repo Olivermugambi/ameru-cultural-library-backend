@@ -6,8 +6,8 @@ readonly SSH_ALLOWED='git@github.com:Olivermugambi/ameru-cultural-library-backen
 
 current="$(git remote get-url origin)"
 push="$(git remote get-url --push origin)"
-case "$current" in "$ALLOWED"|"$SSH_ALLOWED") ;; *) exit 77 ;; esac
-case "$push" in "$ALLOWED"|"$SSH_ALLOWED") ;; *) exit 77 ;; esac
+case "${current%/}" in "$ALLOWED"|"${ALLOWED%.git}"|"$SSH_ALLOWED"|"${SSH_ALLOWED%.git}") ;; *) exit 77 ;; esac
+case "${push%/}" in "$ALLOWED"|"${ALLOWED%.git}"|"$SSH_ALLOWED"|"${SSH_ALLOWED%.git}") ;; *) exit 77 ;; esac
 
 if [[ "$(git remote | wc -l | tr -d ' ')" != 1 ]]; then
   printf 'PROJECT POLICY: only the canonical origin remote is permitted.\n' >&2

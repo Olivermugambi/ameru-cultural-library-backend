@@ -1,65 +1,294 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-readonly ALLOWED_REPO='Olivermugambi/ameru-cultural-library-backend'
+readonly BACKEND_REPO='Olivermugambi/ameru-cultural-library-backend'
 readonly FRONTEND_REPO='Olivermugambi/ameru-cultural-library'
-readonly ALLOWED_HTTPS="https://github.com/${ALLOWED_REPO}.git"
-readonly ALLOWED_SSH="git@github.com:${ALLOWED_REPO}.git"
+readonly POLICY_EXIT=77
 
 die() {
-  printf 'PROJECT POLICY: remote Git access is restricted to %s and %s\n' "$ALLOWED_REPO" "$FRONTEND_REPO" >&2
-  exit 77
+  printf 'PROJECT POLICY: remote Git access is restricted to %s and %s\n' \
+    "$BACKEND_REPO" "$FRONTEND_REPO" >&2
+  exit "$POLICY_EXIT"
 }
 
 normalize_url() {
-  local value="${1%.git}"
+  local value="$1"
+  value="${value%/}"
+  value="${value%.git}"
   value="${value%/}"
   case "$value" in
-    "https://github.com/${ALLOWED_REPO}"|"git@github.com:${ALLOWED_REPO}"|"ssh://git@github.com/${ALLOWED_REPO}"|\
-    "https://github.com/${FRONTEND_REPO}"|"git@github.com:${FRONTEND_REPO}"|"ssh://git@github.com/${FRONTEND_REPO}")
-      return 0
-      ;;
-    *)
-      return 1
-      ;;
+    "https://github.com/${BACKEND_REPO}"|"git@github.com:${BACKEND_REPO}"|"ssh://git@github.com/${BACKEND_REPO}") printf 'backend\n' ;;
+    "https://github.com/${FRONTEND_REPO}"|"git@github.com:${FRONTEND_REPO}"|"ssh://git@github.com/${FRONTEND_REPO}") printf 'frontend\n' ;;
+    *) return 1 ;;
   esac
 }
 
-verify_configured_remotes() {
-  local remote url pushurl
-  while IFS= read -r remote; do
-    [[ "$remote" == origin ]] || die
-    url="$(command git remote get-url "$remote")"
-    pushurl="$(command git remote get-url --push "$remote")"
-    normalize_url "$url" || die
-    normalize_url "$pushurl" || die
-  done < <(command git remote)
+looks_like_remote_url() {
+  case "$1" in *://*|git@*:*|github.com:*|github.com/*) return 0 ;; *) return 1 ;; esac
 }
 
-command_name=''
-for arg in "$@"; do
-  [[ "$arg" == -* ]] && continue
-  command_name="$arg"
-  break
+find_command_index() {
+  local index=0
+  local -a argv=("$@")
+  while (( index < ${#argv[@]} )); do
+    case "${argv[index]}" in
+      -C|-c|--config-env|--exec-path|--git-dir|--namespace|--super-prefix|--work-tree)
+        (( index + 1 < ${#argv[@]} )) || die
+        ((index += 2))
+        ;;
+      --exec-path=*|--git-dir=*|--namespace=*|--super-prefix=*|--work-tree=*|--config-env=*|--bare|--no-pager|--paginate|-p|--no-replace-objects|--literal-pathspecs|--glob-pathspecs|--noglob-pathspecs|--icase-pathspecs|--no-optional-locks|--no-lazy-fetch)
+        ((index += 1))
+        ;;
+      --) ((index += 1)); break ;;
+      -*) die ;;
+      *) printf '%s\n' "$index"; return 0 ;;
+    esac
+  done
+  die
+}
+
+verify_backend_checkout() {
+  local fetch_url push_url fetch_repo push_repo
+  local -a remotes
+  mapfile -t remotes < <(command git "$@" remote)
+  [[ "${#remotes[@]}" -eq 1 && "${remotes[0]}" == origin ]] || die
+  fetch_url="$(command git "$@" remote get-url origin)" || die
+  push_url="$(command git "$@" remote get-url --push origin)" || die
+  fetch_repo="$(normalize_url "$fetch_url")" || die
+  push_repo="$(normalize_url "$push_url")" || die
+  [[ "$fetch_repo" == backend && "$push_repo" == backend ]] || die
+}
+
+validate_all_explicit_urls() {
+  local arg repository
+  for arg in "$@"; do
+    if looks_like_remote_url "$arg"; then
+      repository="$(normalize_url "$arg")" || die
+      [[ "$repository" == backend ]] || die
+    fi
+  done
+}
+
+validate_backend_target() {
+  local target="$1" repository
+  [[ "$target" == origin ]] && return 0
+  repository="$(normalize_url "$target")" || die
+  [[ "$repository" == backend ]] || die
+}
+
+validate_remote_command_target() {
+  local command="$1" index=0 skip_next=false target_found=false arg
+  shift
+  local -a remote_args=("$@")
+  while (( index < ${#remote_args[@]} )); do
+    arg="${remote_args[index]}"
+    if $skip_next; then
+      skip_next=false
+    else
+      case "$command:$arg" in
+        fetch:--multiple) die ;;
+        fetch:--depth|fetch:--deepen|fetch:--shallow-since|fetch:--shallow-exclude|fetch:--negotiation-tip|fetch:--filter|fetch:--refmap|fetch:--server-option|fetch:--upload-pack|fetch:--jobs|fetch:-j) skip_next=true ;;
+        pull:--strategy|pull:-s|pull:--strategy-option|pull:-X|pull:--depth|pull:--deepen|pull:--shallow-since|pull:--shallow-exclude|pull:--filter|pull:--server-option|pull:--upload-pack|pull:--jobs|pull:-j) skip_next=true ;;
+        push:--repo)
+          (( index + 1 < ${#remote_args[@]} )) || die
+          validate_backend_target "${remote_args[index+1]}"
+          target_found=true
+          skip_next=true
+          ;;
+        push:--receive-pack|push:--exec|push:--push-option|push:-o) skip_next=true ;;
+        ls-remote:--upload-pack|ls-remote:--server-option|ls-remote:--sort) skip_next=true ;;
+        *:--depth=*|*:--deepen=*|*:--shallow-since=*|*:--shallow-exclude=*|*:--filter=*|*:--server-option=*|*:--upload-pack=*|*:--jobs=*|pull:--strategy=*|pull:--strategy-option=*|push:--repo=*|push:--receive-pack=*|push:--exec=*|push:--push-option=*|ls-remote:--sort=*)
+          if [[ "$arg" == --repo=* ]]; then
+            validate_backend_target "${arg#--repo=}"
+            target_found=true
+          fi
+          ;;
+        *:-*) ;;
+        *:*)
+          if ! $target_found; then
+            validate_backend_target "$arg"
+            target_found=true
+            return 0
+          fi
+          ;;
+      esac
+    fi
+    ((index += 1))
+  done
+  [[ "$command" != ls-remote || "$target_found" == true ]] || die
+}
+
+validate_submodule_add_target() {
+  local index=1 skip_next=false arg repository
+  local -a submodule_args=("$@")
+  while (( index < ${#submodule_args[@]} )); do
+    arg="${submodule_args[index]}"
+    if $skip_next; then
+      skip_next=false
+    else
+      case "$arg" in
+        --reference|--reference-if-able|--reference=*|--reference-if-able=*) die ;;
+        -b|--branch|--name|--depth) skip_next=true ;;
+        --branch=*|--name=*|--depth=*|-f|--force|--quiet|--progress|--dissociate) ;;
+        -*) die ;;
+        *)
+          repository="$(normalize_url "$arg")" || die
+          [[ "$repository" == backend || "$repository" == frontend ]] || die
+          return 0
+          ;;
+      esac
+    fi
+    ((index += 1))
+  done
+  die
+}
+
+reject_submodule_reference_options() {
+  local arg
+  for arg in "$@"; do
+    case "$arg" in --reference|--reference=*|--reference-if-able|--reference-if-able=*) die ;; esac
+  done
+}
+
+validate_submodule_set_url() {
+  local index=1 repository
+  local -a submodule_args=("$@")
+  if [[ "${submodule_args[index]:-}" == -- ]]; then ((index += 1)); fi
+  # The path is positional at index; the replacement URL immediately follows.
+  (( index + 1 < ${#submodule_args[@]} )) || die
+  repository="$(normalize_url "${submodule_args[index+1]}")" || die
+  [[ "$repository" == backend || "$repository" == frontend ]] || die
+}
+
+validate_global_config() {
+  local index=0 value key
+  local -a options=("$@")
+  while (( index < ${#options[@]} )); do
+    case "${options[index]}" in
+      -c|--config-env)
+        (( index + 1 < ${#options[@]} )) || die
+        value="${options[index+1]}"
+        key="${value%%=*}"
+        key="${key,,}"
+        case "$key" in
+          url.*.insteadof|remote.*.url|remote.*.pushurl|include.path|includeif.*.path|core.sshcommand|protocol.ext.allow) die ;;
+        esac
+        ((index += 2))
+        ;;
+      --config-env=*)
+        value="${options[index]#--config-env=}"
+        key="${value%%=*}"
+        key="${key,,}"
+        case "$key" in
+          url.*.insteadof|remote.*.url|remote.*.pushurl|include.path|includeif.*.path|core.sshcommand|protocol.ext.allow) die ;;
+        esac
+        ((index += 1))
+        ;;
+      *) ((index += 1)) ;;
+    esac
+  done
+}
+
+validate_ambient_git_state() {
+  local variable entry key
+  local -a forbidden_environment=(
+    GIT_CONFIG_COUNT GIT_CONFIG_PARAMETERS GIT_CONFIG_GLOBAL GIT_CONFIG_SYSTEM
+    GIT_CONFIG_NOSYSTEM GIT_SSH GIT_SSH_COMMAND GIT_PROXY_COMMAND GIT_EXEC_PATH
+    GIT_ASKPASS
+  )
+  for variable in "${forbidden_environment[@]}"; do
+    [[ -z "${!variable+x}" ]] || die
+  done
+
+  # Includes are expanded so a rewrite cannot hide in a second config file.
+  while IFS= read -r entry; do
+    key="${entry%% *}"
+    key="${key,,}"
+    case "$key" in
+      url.*.insteadof|include.path|includeif.*.path|core.sshcommand|protocol.ext.allow) die ;;
+    esac
+  done < <(
+    command git config --includes --get-regexp \
+      '^(url\..*\.insteadof|include(if\..*)?\.path|core\.sshcommand|protocol\.ext\.allow)$' \
+      2>/dev/null || true
+  )
+}
+
+validate_clone_url() {
+  local index=0 skip_next=false arg
+  local -a clone_args=("$@")
+  while (( index < ${#clone_args[@]} )); do
+    arg="${clone_args[index]}"
+    if $skip_next; then
+      skip_next=false
+    else
+      case "$arg" in
+        --reference|--reference-if-able|--reference=*|--reference-if-able=*) die ;;
+        -b|--branch|-o|--origin|-u|--upload-pack|--separate-git-dir|--depth|--shallow-since|--shallow-exclude|--jobs|-j|--filter|--server-option|--revision) skip_next=true ;;
+        --recurse-submodules|--recurse-submodules=*|--recursive|--shallow-submodules|--remote-submodules|--also-filter-submodules) die ;;
+        --branch=*|--origin=*|--upload-pack=*|--separate-git-dir=*|--depth=*|--shallow-since=*|--shallow-exclude=*|--jobs=*|--filter=*|--server-option=*|--revision=*|--no-checkout|-n|--bare|--mirror|--local|-l|--no-hardlinks|--shared|-s|--no-tags|--single-branch|--no-single-branch|--sparse|--reject-shallow) ;;
+        -*) die ;;
+        *) normalize_url "$arg" >/dev/null || die; return 0 ;;
+      esac
+    fi
+    ((index += 1))
+  done
+  die
+}
+
+validate_gitmodules() {
+  local entry url
+  if [[ -f .gitmodules ]]; then
+    while IFS= read -r entry; do
+      url="${entry#* }"
+      [[ -z "$url" ]] || normalize_url "$url" >/dev/null || die
+    done < <(command git config --file .gitmodules --get-regexp '^submodule\..*\.url$' 2>/dev/null || true)
+  fi
+  while IFS= read -r entry; do
+    url="${entry#* }"
+    [[ -z "$url" ]] || normalize_url "$url" >/dev/null || die
+  done < <(command git config --local --get-regexp '^submodule\..*\.url$' 2>/dev/null || true)
+}
+
+command_index="$(find_command_index "$@")"
+args=("$@")
+command_name="${args[command_index]}"
+global_args=("${args[@]:0:command_index}")
+command_args=("${args[@]:command_index+1}")
+validate_global_config "${global_args[@]}"
+for global_arg in "${global_args[@]}"; do
+  case "$global_arg" in --exec-path|--exec-path=*) die ;; esac
 done
 
 case "$command_name" in
   clone)
-    for arg in "$@"; do
-      [[ "$arg" == -* || "$arg" == clone ]] && continue
-      normalize_url "$arg" || die
-      break
-    done
+    validate_ambient_git_state
+    validate_clone_url "${command_args[@]}"
     ;;
-  fetch|pull|push|ls-remote|remote|submodule)
-    verify_configured_remotes
-    for arg in "$@"; do
-      case "$arg" in
-        *://*|git@*:*|github.com:*|github.com/*)
-          normalize_url "$arg" || die
-          ;;
-      esac
-    done
+  fetch|pull|push|ls-remote)
+    validate_ambient_git_state
+    validate_remote_command_target "$command_name" "${command_args[@]}"
+    verify_backend_checkout "${global_args[@]}"
+    ;;
+  remote)
+    validate_ambient_git_state
+    validate_all_explicit_urls "${command_args[@]}"
+    verify_backend_checkout "${global_args[@]}"
+    case "${command_args[0]:-}" in add|rename|remove|rm|set-head|set-branches|set-url) die ;; esac
+    ;;
+  submodule)
+    validate_ambient_git_state
+    verify_backend_checkout "${global_args[@]}"
+    [[ "${command_args[0]:-}" != foreach ]] || die
+    reject_submodule_reference_options "${command_args[@]}"
+    if [[ "${command_args[0]:-}" == add ]]; then
+      validate_submodule_add_target "${command_args[@]}"
+    elif [[ "${command_args[0]:-}" == set-url ]]; then
+      validate_submodule_set_url "${command_args[@]}"
+    else
+      validate_all_explicit_urls "${command_args[@]}"
+    fi
+    validate_gitmodules
     ;;
 esac
 

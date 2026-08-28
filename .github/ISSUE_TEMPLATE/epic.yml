@@ -1,0 +1,109 @@
+name: Milestone epic
+description: Define a coherent milestone as disjoint child issues with named interfaces.
+title: ""
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        An epic coordinates independently executable child issues. Shared ownership is not
+        an interface: name the exact artifact or contract passed between children.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: State the milestone boundary and why it is coherent.
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: State the integrated outcome the children must jointly produce.
+    validations:
+      required: true
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current state
+      description: Describe the observed milestone-level gap.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-state
+    attributes:
+      label: Expected state
+      description: Describe the integrated state required to close the epic.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Bound repositories, milestone scope, sequencing, and prohibited expansion.
+    validations:
+      required: true
+  - type: textarea
+    id: child-scopes
+    attributes:
+      label: Disjoint child scopes
+      description: Link each child and identify the one responsibility it exclusively owns.
+      placeholder: |-
+        - #123 — owns one bounded responsibility
+        - #124 — owns a separate bounded responsibility
+    validations:
+      required: true
+  - type: textarea
+    id: shared-interfaces
+    attributes:
+      label: Named shared interfaces
+      description: Name only the artifacts or contracts passed between child scopes.
+      placeholder: |-
+        - #123 publishes `command-or-contract`; #124 consumes it without redefining it.
+    validations:
+      required: true
+  - type: textarea
+    id: execution-order
+    attributes:
+      label: Execution order
+      description: State prerequisites and which children, if any, may run independently.
+    validations:
+      required: true
+  - type: textarea
+    id: resolution-plan
+    attributes:
+      label: Resolution plan
+      description: Explain how the children close the milestone without gaps or overlap.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Use mandatory, independently verifiable Markdown checkboxes.
+      placeholder: |-
+        - [ ] Every child is closed with linked evidence
+        - [ ] Integrated validation proves the shared interfaces
+    validations:
+      required: true
+  - type: textarea
+    id: evidence-expectations
+    attributes:
+      label: Evidence expectations
+      description: Name child evidence and integrated proof required for closure.
+    validations:
+      required: true
+  - type: textarea
+    id: stop-rules
+    attributes:
+      label: Stop rules
+      description: Define failed-child, missing-interface, scope, and prerequisite stops.
+    validations:
+      required: true
+  - type: textarea
+    id: validation-criteria
+    attributes:
+      label: Validation criteria
+      description: Define integrated verification and the closure recommendation required.
+    validations:
+      required: true

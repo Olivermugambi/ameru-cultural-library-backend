@@ -1,0 +1,83 @@
+name: Implementation issue
+description: Define one bounded, independently executable implementation change.
+title: ""
+labels: []
+body:
+  - type: markdown
+    attributes:
+      value: |
+        Use one dedicated branch and worktree for this issue. Follow `GIT_WORKFLOW.md`.
+        A checkbox records disposition; it does not replace linked evidence.
+  - type: textarea
+    id: summary
+    attributes:
+      label: Summary
+      description: State the bounded change in a few sentences.
+    validations:
+      required: true
+  - type: textarea
+    id: goal
+    attributes:
+      label: Goal
+      description: State the outcome this issue must produce.
+    validations:
+      required: true
+  - type: textarea
+    id: current-state
+    attributes:
+      label: Current state
+      description: Describe the observed state and link primary evidence.
+    validations:
+      required: true
+  - type: textarea
+    id: expected-state
+    attributes:
+      label: Expected state
+      description: Describe the state that will exist when the issue is complete.
+    validations:
+      required: true
+  - type: textarea
+    id: constraints
+    attributes:
+      label: Constraints
+      description: Bound repositories, files, behavior, dependencies, and prohibited expansion.
+    validations:
+      required: true
+  - type: textarea
+    id: resolution-plan
+    attributes:
+      label: Resolution plan
+      description: List the issue-scoped TDD and implementation sequence.
+    validations:
+      required: true
+  - type: textarea
+    id: acceptance-criteria
+    attributes:
+      label: Acceptance criteria
+      description: Use mandatory, independently verifiable Markdown checkboxes.
+      placeholder: |-
+        - [ ] Observable outcome with a defined proof
+        - [ ] Critical regression test is collected by CI
+    validations:
+      required: true
+  - type: textarea
+    id: evidence-expectations
+    attributes:
+      label: Evidence expectations
+      description: Name automated outputs, links, and manual evidence required for each claim.
+    validations:
+      required: true
+  - type: textarea
+    id: stop-rules
+    attributes:
+      label: Stop rules
+      description: Define scope overflow, prerequisite, safety, and failed-verification stops.
+    validations:
+      required: true
+  - type: textarea
+    id: validation-criteria
+    attributes:
+      label: Validation criteria
+      description: Define tests, review gates, final rebase validation, and merge requirements.
+    validations:
+      required: true

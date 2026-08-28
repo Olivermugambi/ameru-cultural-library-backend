@@ -7,3 +7,6 @@ Every feature should include tests and preserve the full verification gate. Pref
 Never invent cultural, historical, provenance, attribution, or licensing facts to make fixtures look realistic. Clearly label synthetic fixtures.
 
 Do not couple frontend presentation concerns to backend domain models. Do not add authentication, CMS, moderation, or persistence infrastructure unless the corresponding product scope has been approved.
+
+All implementation work must follow the dedicated issue branch, worktree,
+rebase, validation, merge, and cleanup lifecycle in `GIT_WORKFLOW.md`.

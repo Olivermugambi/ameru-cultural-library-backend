@@ -118,46 +118,18 @@ validate_remote_command_target() {
   [[ "$command" != ls-remote || "$target_found" == true ]] || die
 }
 
-validate_submodule_add_target() {
-  local index=1 skip_next=false arg repository
-  local -a submodule_args=("$@")
-  while (( index < ${#submodule_args[@]} )); do
-    arg="${submodule_args[index]}"
-    if $skip_next; then
-      skip_next=false
-    else
-      case "$arg" in
-        --reference|--reference-if-able|--reference=*|--reference-if-able=*) die ;;
-        -b|--branch|--name|--depth) skip_next=true ;;
-        --branch=*|--name=*|--depth=*|-f|--force|--quiet|--progress|--dissociate) ;;
-        -*) die ;;
-        *)
-          repository="$(normalize_url "$arg")" || die
-          [[ "$repository" == backend || "$repository" == frontend ]] || die
-          return 0
-          ;;
-      esac
-    fi
-    ((index += 1))
-  done
-  die
-}
-
-reject_submodule_reference_options() {
-  local arg
-  for arg in "$@"; do
-    case "$arg" in --reference|--reference=*|--reference-if-able|--reference-if-able=*) die ;; esac
-  done
-}
-
-validate_submodule_set_url() {
-  local index=1 repository
-  local -a submodule_args=("$@")
-  if [[ "${submodule_args[index]:-}" == -- ]]; then ((index += 1)); fi
-  # The path is positional at index; the replacement URL immediately follows.
-  (( index + 1 < ${#submodule_args[@]} )) || die
-  repository="$(normalize_url "${submodule_args[index+1]}")" || die
-  [[ "$repository" == backend || "$repository" == frontend ]] || die
+validate_remote_query() {
+  case "$#" in
+    0) return 0 ;;
+    1) [[ "$1" == -v || "$1" == --verbose ]] || die ;;
+    2) [[ "$1" == get-url && "$2" == origin ]] || die ;;
+    3)
+      [[ "$1" == get-url ]] || die
+      [[ "$2" == --push || "$2" == --all ]] || die
+      [[ "$3" == origin ]] || die
+      ;;
+    *) die ;;
+  esac
 }
 
 validate_global_config() {
@@ -236,20 +208,6 @@ validate_clone_url() {
   die
 }
 
-validate_gitmodules() {
-  local entry url
-  if [[ -f .gitmodules ]]; then
-    while IFS= read -r entry; do
-      url="${entry#* }"
-      [[ -z "$url" ]] || normalize_url "$url" >/dev/null || die
-    done < <(command git config --file .gitmodules --get-regexp '^submodule\..*\.url$' 2>/dev/null || true)
-  fi
-  while IFS= read -r entry; do
-    url="${entry#* }"
-    [[ -z "$url" ]] || normalize_url "$url" >/dev/null || die
-  done < <(command git config --local --get-regexp '^submodule\..*\.url$' 2>/dev/null || true)
-}
-
 command_index="$(find_command_index "$@")"
 args=("$@")
 command_name="${args[command_index]}"
@@ -271,25 +229,13 @@ case "$command_name" in
     verify_backend_checkout "${global_args[@]}"
     ;;
   remote)
+    validate_remote_query "${command_args[@]}"
     validate_ambient_git_state
     validate_all_explicit_urls "${command_args[@]}"
     verify_backend_checkout "${global_args[@]}"
-    case "${command_args[0]:-}" in add|rename|remove|rm|set-head|set-branches|set-url) die ;; esac
     ;;
-  submodule)
-    validate_ambient_git_state
-    verify_backend_checkout "${global_args[@]}"
-    [[ "${command_args[0]:-}" != foreach ]] || die
-    reject_submodule_reference_options "${command_args[@]}"
-    if [[ "${command_args[0]:-}" == add ]]; then
-      validate_submodule_add_target "${command_args[@]}"
-    elif [[ "${command_args[0]:-}" == set-url ]]; then
-      validate_submodule_set_url "${command_args[@]}"
-    else
-      validate_all_explicit_urls "${command_args[@]}"
-    fi
-    validate_gitmodules
-    ;;
+  submodule) die ;;
+  *) die ;;
 esac
 
 exec git "$@"

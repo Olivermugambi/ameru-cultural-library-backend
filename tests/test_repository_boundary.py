@@ -556,6 +556,65 @@ def test_recursive_clone_is_rejected_before_uninspected_submodule_transport(tmp_
     assert not marker.exists()
 
 
+@pytest.mark.parametrize(
+    ("operation", "command_args"),
+    [
+        ("fetch", ["--recurse-submodules", "origin"]),
+        ("fetch", ["--recurse-submodules=on-demand", "origin"]),
+        ("fetch", ["origin", "--recurse-submodules=on-demand"]),
+        ("pull", ["--recurse-submodules", "origin"]),
+        ("pull", ["--recurse-submodules=on-demand", "origin"]),
+        ("pull", ["--recurse-subm=on-demand", "origin"]),
+        ("pull", ["origin", "--recurse-submodules=on-demand"]),
+        ("push", ["--recurse-submodules", "origin"]),
+        ("push", ["--recurse-submodules=on-demand", "origin"]),
+        ("push", ["--recurse-subm=on-demand", "origin"]),
+        ("push", ["origin", "--recurse-submodules=on-demand"]),
+    ],
+)
+def test_recursive_remote_operation_is_rejected_before_uninspected_submodule_transport(
+    tmp_path: Path, operation: str, command_args: list[str]
+) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    subprocess.run(
+        ["git", "-C", repo, "config", "submodule.dependency.url", THIRD], check=True
+    )
+    before = run(
+        "git", "-C", repo, "config", "submodule.dependency.url", cwd=repo
+    ).stdout
+    env, marker = git_invocation_sentinel(tmp_path)
+
+    result = run(GUARD, operation, *command_args, cwd=repo, env=env)
+
+    assert result.returncode == 77
+    assert not marker.exists()
+    after = run("git", "-C", repo, "config", "submodule.dependency.url", cwd=repo).stdout
+    assert after == before
+
+
+@pytest.mark.parametrize(
+    ("operation", "command_args"),
+    [
+        ("fetch", ["--mult", "origin", THIRD]),
+        ("fetch", ["--multiple", "origin", THIRD]),
+        ("push", [f"--rep={THIRD}"]),
+        ("push", [f"--repo={THIRD}"]),
+    ],
+)
+def test_repository_selecting_options_cannot_bypass_identity_validation(
+    tmp_path: Path, operation: str, command_args: list[str]
+) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    env, marker = git_invocation_sentinel(tmp_path)
+
+    result = run(GUARD, operation, *command_args, cwd=repo, env=env)
+
+    assert result.returncode == 77
+    assert not marker.exists()
+
+
 @pytest.mark.parametrize("operation", ["fetch", "pull", "push", "ls-remote"])
 def test_backend_checkout_cannot_use_frontend_as_a_remote_target(
     tmp_path: Path, operation: str

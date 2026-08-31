@@ -86,7 +86,8 @@ validate_remote_command_target() {
       skip_next=false
     else
       case "$command:$arg" in
-        fetch:--multiple) die ;;
+        fetch:--mult*) die ;;
+        fetch:--recurse*|pull:--recurse*|push:--recurse*) die ;;
         fetch:--depth|fetch:--deepen|fetch:--shallow-since|fetch:--shallow-exclude|fetch:--negotiation-tip|fetch:--filter|fetch:--refmap|fetch:--server-option|fetch:--upload-pack|fetch:--jobs|fetch:-j) skip_next=true ;;
         pull:--strategy|pull:-s|pull:--strategy-option|pull:-X|pull:--depth|pull:--deepen|pull:--shallow-since|pull:--shallow-exclude|pull:--filter|pull:--server-option|pull:--upload-pack|pull:--jobs|pull:-j) skip_next=true ;;
         push:--repo)
@@ -95,6 +96,7 @@ validate_remote_command_target() {
           target_found=true
           skip_next=true
           ;;
+        push:--rep*) die ;;
         push:--receive-pack|push:--exec|push:--push-option|push:-o) skip_next=true ;;
         ls-remote:--upload-pack|ls-remote:--server-option|ls-remote:--sort) skip_next=true ;;
         *:--depth=*|*:--deepen=*|*:--shallow-since=*|*:--shallow-exclude=*|*:--filter=*|*:--server-option=*|*:--upload-pack=*|*:--jobs=*|pull:--strategy=*|pull:--strategy-option=*|push:--repo=*|push:--receive-pack=*|push:--exec=*|push:--push-option=*|ls-remote:--sort=*)
@@ -108,7 +110,6 @@ validate_remote_command_target() {
           if ! $target_found; then
             validate_backend_target "$arg"
             target_found=true
-            return 0
           fi
           ;;
       esac
@@ -224,8 +225,8 @@ case "$command_name" in
     validate_clone_url "${command_args[@]}"
     ;;
   fetch|pull|push|ls-remote)
-    validate_ambient_git_state
     validate_remote_command_target "$command_name" "${command_args[@]}"
+    validate_ambient_git_state
     verify_backend_checkout "${global_args[@]}"
     ;;
   remote)

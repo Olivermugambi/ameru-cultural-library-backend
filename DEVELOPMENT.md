@@ -21,6 +21,11 @@ pytest
 ruff check .
 ```
 
+For Docker-based clean-checkout reproduction and manual verification, use
+[`docs/local-reproduction.md`](docs/local-reproduction.md). That guide owns the
+Compose lifecycle, test-container command, expected endpoint results, logs, and
+project-scoped teardown procedure.
+
 ## Repository-boundary validation
 
 Bootstrap the boundary in every fresh backend checkout, then run its stable

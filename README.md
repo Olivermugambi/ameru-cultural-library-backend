@@ -25,5 +25,9 @@ uvicorn app.main:app --reload
 
 API docs are available at `/docs` and `/openapi.json` when running locally.
 
+For a clean-checkout container build, complete test gate, manual endpoint checks,
+logs, and safe teardown, follow the canonical
+[Docker local reproduction guide](docs/local-reproduction.md).
+
 ## Repository boundaries
 This repository is not the frontend, CMS, authentication system, moderation platform, or archival ingestion pipeline. See `ARCHITECTURE.md`, `DOMAIN_MODEL.md`, and `CONTENT_GOVERNANCE.md` before extending it.

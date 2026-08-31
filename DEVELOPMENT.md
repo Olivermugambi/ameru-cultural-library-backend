@@ -61,9 +61,9 @@ valid backend-checkout target; filesystem paths, other remote names, and other
 scp-like hosts fail closed. Clone accepts either allowlisted repository into a
 separate checkout. All guarded `submodule` commands are prohibited: neither
 the frontend, backend, nor any third repository may become a backend submodule
-or other repository-graph dependency. Reference-repository and recursive-clone
-options also fail closed because they introduce an additional repository access
-surface.
+or other repository-graph dependency. Reference-repository, recursive-clone,
+and recursive `fetch`, `pull`, and `push` options also fail closed because they
+introduce an additional repository access surface.
 
 Before a guarded remote operation, the guard inspects effective Git config
 (including included files) and rejects URL rewrites, config includes, custom

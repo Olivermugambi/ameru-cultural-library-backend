@@ -21,6 +21,20 @@ pytest
 ruff check .
 ```
 
+## Required CI
+
+Pull requests and pushes to `main` run the stable `P0 required checks` job in
+the `CI` workflow. That check is blocking and performs dependency installation,
+package build/import validation, Ruff, shell syntax validation, the explicit
+repository-boundary suite, and the complete unfiltered pytest suite. The
+repository-boundary tests therefore run both as a visible P0 policy gate and as
+part of the full regression suite.
+
+The workflow has read-only repository permission and cancels only superseded
+runs for the same pull request or Git ref. Main-branch enforcement must require
+the exact `P0 required checks` context observed on a successful pull request;
+do not guess or rename the context after enabling the rule.
+
 For Docker-based clean-checkout reproduction and manual verification, use
 [`docs/local-reproduction.md`](docs/local-reproduction.md). That guide owns the
 Compose lifecycle, test-container command, expected endpoint results, logs, and

@@ -42,21 +42,28 @@ is allowed by cloning its canonical HTTPS or SSH URL into a separate checkout,
 or through the approved connector; it is not allowed by adding the frontend as
 a backend remote.
 
-The test matrix treats exit code `77` as a policy denial. It covers canonical
-HTTPS and SSH URLs with optional `.git` and trailing slash, Git global options,
-clone/fetch/pull/push/ls-remote, remote mutation, submodules, bootstrap, and the
-backend-only pre-push hook. Denial cases use inert fixtures and transport
-sentinels, so no unauthorized repository is contacted.
+The guard is a narrow gateway for the explicitly supported remote operations
+`clone`, `fetch`, `pull`, `push`, `ls-remote`, and safe read-only
+`remote` queries. Every other command fails closed with policy exit code
+`77`, including commands added by a future Git version. Use ordinary `git`
+directly for local-only work; do not route local commands through the remote
+gateway.
+
+The test matrix covers canonical HTTPS and SSH URLs with optional `.git` and
+trailing slash, Git global options, supported remote commands, unsupported
+command fallthrough, remote mutation, bootstrap, and the backend-only pre-push
+hook. Denial cases use inert fixtures and Git/transport sentinels, so no
+unauthorized repository is contacted.
 
 For fetch, pull, push, and ls-remote, repository operands are parsed separately
 from later refs and refspecs. Only `origin` or a canonical backend URL is a
 valid backend-checkout target; filesystem paths, other remote names, and other
-scp-like hosts fail closed. Clone accepts either allowlisted repository, and a
-submodule-add URL must normalize to one of those same two identities.
-Submodule `set-url` applies the same check to the replacement value before it
-mutates `.gitmodules`. Reference-repository options on clone and submodule
-operations fail closed because they introduce an additional repository access
-surface.
+scp-like hosts fail closed. Clone accepts either allowlisted repository into a
+separate checkout. All guarded `submodule` commands are prohibited: neither
+the frontend, backend, nor any third repository may become a backend submodule
+or other repository-graph dependency. Reference-repository, recursive-clone,
+and recursive `fetch`, `pull`, and `push` options also fail closed because they
+introduce an additional repository access surface.
 
 Before a guarded remote operation, the guard inspects effective Git config
 (including included files) and rejects URL rewrites, config includes, custom

@@ -58,6 +58,18 @@ def inert_git(tmp_path: Path) -> dict[str, str]:
     return env
 
 
+def git_invocation_sentinel(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    bin_dir = tmp_path / "git-sentinel-bin"
+    bin_dir.mkdir()
+    marker = tmp_path / "git-invoked"
+    git = bin_dir / "git"
+    git.write_text(f"#!/bin/sh\ntouch '{marker}'\nexit 99\n")
+    git.chmod(git.stat().st_mode | stat.S_IXUSR)
+    env = os.environ.copy()
+    env["PATH"] = f"{bin_dir}:{env['PATH']}"
+    return env, marker
+
+
 def inert_remote_git(tmp_path: Path) -> dict[str, str]:
     env = inert_git(tmp_path)
     real_git = subprocess.run(
@@ -68,6 +80,22 @@ def inert_remote_git(tmp_path: Path) -> dict[str, str]:
         f'#!/bin/sh\ncase "$1" in config|remote) exec \'{real_git}\' "$@" ;; esac\nexit 0\n'
     )
     return env
+
+
+def remote_update_sentinel(tmp_path: Path) -> tuple[dict[str, str], Path]:
+    env = inert_git(tmp_path)
+    marker = tmp_path / "remote-update-invoked"
+    real_git = subprocess.run(
+        ["which", "git"], text=True, capture_output=True, check=True
+    ).stdout.strip()
+    fake_git = Path(env["PATH"].split(":", 1)[0]) / "git"
+    fake_git.write_text(
+        "#!/bin/sh\n"
+        f"[ \"$1\" = remote ] && [ \"${{2:-}}\" = update ] && "
+        f"touch '{marker}' && exit 99\n"
+        f"exec '{real_git}' \"$@\"\n"
+    )
+    return env, marker
 
 
 @pytest.mark.parametrize(
@@ -185,10 +213,13 @@ def test_canonical_backend_url_is_an_explicit_remote_target(tmp_path: Path, oper
     assert result.returncode == 0, result.stderr
 
 
-@pytest.mark.parametrize("target", [BACKEND, FRONTEND])
-def test_submodule_add_accepts_only_exact_allowlist_urls(tmp_path: Path, target: str) -> None:
+@pytest.mark.parametrize("target", [BACKEND, FRONTEND, THIRD])
+def test_submodule_add_is_always_denied_before_mutation(
+    tmp_path: Path, target: str
+) -> None:
     repo = tmp_path / "repo"
     init_repo(repo)
+    env, marker = git_invocation_sentinel(tmp_path)
 
     result = run(
         GUARD,
@@ -197,10 +228,13 @@ def test_submodule_add_accepts_only_exact_allowlist_urls(tmp_path: Path, target:
         target,
         "vendor/x",
         cwd=repo,
-        env=inert_remote_git(tmp_path),
+        env=env,
     )
 
-    assert result.returncode == 0, result.stderr
+    assert result.returncode == 77
+    assert not marker.exists()
+    assert not (repo / "vendor" / "x").exists()
+    assert not (repo / ".gitmodules").exists()
 
 
 @pytest.mark.parametrize("target_kind", ["absolute", "relative", "scp"])
@@ -226,17 +260,24 @@ def test_submodule_set_url_rejects_non_allowlist_without_mutation(
     assert targets[target_kind] not in gitmodules.read_text()
 
 
-@pytest.mark.parametrize("target", [BACKEND, FRONTEND])
-def test_submodule_set_url_accepts_exact_allowlist(tmp_path: Path, target: str) -> None:
+@pytest.mark.parametrize("target", [BACKEND, FRONTEND, THIRD])
+def test_submodule_set_url_is_always_denied_without_mutation(
+    tmp_path: Path, target: str
+) -> None:
     repo = tmp_path / "repo"
     init_repo(repo)
     gitmodules = repo / ".gitmodules"
     gitmodules.write_text(f'[submodule "vendor/x"]\n\tpath = vendor/x\n\turl = {BACKEND}\n')
+    original = gitmodules.read_bytes()
+    env, marker = git_invocation_sentinel(tmp_path)
 
-    result = run(GUARD, "submodule", "set-url", "--", "vendor/x", target, cwd=repo)
+    result = run(
+        GUARD, "submodule", "set-url", "--", "vendor/x", target, cwd=repo, env=env
+    )
 
-    assert result.returncode == 0, result.stderr
-    assert f"url = {target}" in gitmodules.read_text()
+    assert result.returncode == 77
+    assert not marker.exists()
+    assert gitmodules.read_bytes() == original
 
 
 @pytest.mark.parametrize("operation", ["add", "update"])
@@ -301,6 +342,103 @@ def test_frontend_clone_is_an_allowed_synchronization_surface(tmp_path: Path) ->
     result = run(GUARD, "clone", FRONTEND, "frontend", cwd=tmp_path, env=inert_git(tmp_path))
 
     assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("status",),
+        ("archive", f"--remote={BACKEND}", "HEAD"),
+        ("archive", f"--remote={FRONTEND}", "HEAD"),
+        ("archive", f"--remote={THIRD}", "HEAD"),
+    ],
+)
+def test_unsupported_commands_fail_closed_before_git_execution(
+    tmp_path: Path, command: tuple[str, ...]
+) -> None:
+    env, marker = git_invocation_sentinel(tmp_path)
+
+    result = run(GUARD, *command, cwd=tmp_path, env=env)
+
+    assert result.returncode == 77
+    assert "PROJECT POLICY" in result.stderr
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    "global_options",
+    [
+        ("-C", "{repo}"),
+        ("--git-dir", "{repo}/.git", "--work-tree", "{repo}"),
+        ("--git-dir={repo}/.git", "--work-tree={repo}"),
+        ("-c", "protocol.version=2"),
+    ],
+)
+def test_global_options_cannot_hide_an_unsupported_command(
+    tmp_path: Path, global_options: tuple[str, ...]
+) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    env, marker = git_invocation_sentinel(tmp_path)
+    resolved_options = tuple(option.format(repo=repo) for option in global_options)
+
+    result = run(GUARD, *resolved_options, "status", cwd=tmp_path, env=env)
+
+    assert result.returncode == 77
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("remote",),
+        ("remote", "--verbose"),
+        ("remote", "get-url", "origin"),
+        ("remote", "get-url", "--push", "origin"),
+        ("remote", "get-url", "--all", "origin"),
+    ],
+)
+def test_read_only_remote_queries_remain_allowed(
+    tmp_path: Path, command: tuple[str, ...]
+) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+
+    result = run(GUARD, *command, cwd=repo)
+
+    assert result.returncode == 0, result.stderr
+
+
+@pytest.mark.parametrize(
+    "command",
+    [
+        ("remote", "get-url origin"),
+        ("remote", "get-url", "--push origin"),
+        ("remote", "show", "origin"),
+    ],
+)
+def test_malformed_or_unsupported_remote_queries_are_denied_before_git_execution(
+    tmp_path: Path, command: tuple[str, ...]
+) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    env, marker = git_invocation_sentinel(tmp_path)
+
+    result = run(GUARD, *command, cwd=repo, env=env)
+
+    assert result.returncode == 77
+    assert not marker.exists()
+
+
+def test_remote_update_is_denied_before_transport(tmp_path: Path) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    env, marker = remote_update_sentinel(tmp_path)
+
+    result = run(GUARD, "remote", "update", cwd=repo, env=env)
+
+    assert result.returncode == 77
+    assert not marker.exists()
 
 
 def test_url_rewrite_configuration_cannot_redirect_an_allowed_clone(tmp_path: Path) -> None:
@@ -418,12 +556,74 @@ def test_recursive_clone_is_rejected_before_uninspected_submodule_transport(tmp_
     assert not marker.exists()
 
 
-def test_backend_checkout_cannot_fetch_frontend_directly(tmp_path: Path) -> None:
+@pytest.mark.parametrize(
+    ("operation", "command_args"),
+    [
+        ("fetch", ["--recurse-submodules", "origin"]),
+        ("fetch", ["--recurse-submodules=on-demand", "origin"]),
+        ("fetch", ["origin", "--recurse-submodules=on-demand"]),
+        ("pull", ["--recurse-submodules", "origin"]),
+        ("pull", ["--recurse-submodules=on-demand", "origin"]),
+        ("pull", ["--recurse-subm=on-demand", "origin"]),
+        ("pull", ["origin", "--recurse-submodules=on-demand"]),
+        ("push", ["--recurse-submodules", "origin"]),
+        ("push", ["--recurse-submodules=on-demand", "origin"]),
+        ("push", ["--recurse-subm=on-demand", "origin"]),
+        ("push", ["origin", "--recurse-submodules=on-demand"]),
+    ],
+)
+def test_recursive_remote_operation_is_rejected_before_uninspected_submodule_transport(
+    tmp_path: Path, operation: str, command_args: list[str]
+) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    subprocess.run(
+        ["git", "-C", repo, "config", "submodule.dependency.url", THIRD], check=True
+    )
+    before = run(
+        "git", "-C", repo, "config", "submodule.dependency.url", cwd=repo
+    ).stdout
+    env, marker = git_invocation_sentinel(tmp_path)
+
+    result = run(GUARD, operation, *command_args, cwd=repo, env=env)
+
+    assert result.returncode == 77
+    assert not marker.exists()
+    after = run("git", "-C", repo, "config", "submodule.dependency.url", cwd=repo).stdout
+    assert after == before
+
+
+@pytest.mark.parametrize(
+    ("operation", "command_args"),
+    [
+        ("fetch", ["--mult", "origin", THIRD]),
+        ("fetch", ["--multiple", "origin", THIRD]),
+        ("push", [f"--rep={THIRD}"]),
+        ("push", [f"--repo={THIRD}"]),
+    ],
+)
+def test_repository_selecting_options_cannot_bypass_identity_validation(
+    tmp_path: Path, operation: str, command_args: list[str]
+) -> None:
+    repo = tmp_path / "repo"
+    init_repo(repo)
+    env, marker = git_invocation_sentinel(tmp_path)
+
+    result = run(GUARD, operation, *command_args, cwd=repo, env=env)
+
+    assert result.returncode == 77
+    assert not marker.exists()
+
+
+@pytest.mark.parametrize("operation", ["fetch", "pull", "push", "ls-remote"])
+def test_backend_checkout_cannot_use_frontend_as_a_remote_target(
+    tmp_path: Path, operation: str
+) -> None:
     repo = tmp_path / "repo"
     init_repo(repo)
     env, marker = transport_sentinel(tmp_path)
 
-    result = run(GUARD, "fetch", FRONTEND, cwd=repo, env=env)
+    result = run(GUARD, operation, FRONTEND, cwd=repo, env=env)
 
     assert result.returncode == 77
     assert not marker.exists()
@@ -440,30 +640,49 @@ def test_existing_unauthorized_origin_fails_before_fetch_transport(tmp_path: Pat
     assert not marker.exists()
 
 
-def test_submodule_update_rejects_unauthorized_gitmodules_url(tmp_path: Path) -> None:
+@pytest.mark.parametrize("target", [BACKEND, FRONTEND, THIRD])
+def test_submodule_update_is_always_denied_without_mutation(
+    tmp_path: Path, target: str
+) -> None:
     repo = tmp_path / "repo"
     init_repo(repo)
-    (repo / ".gitmodules").write_text(
-        '[submodule "third"]\n\tpath = vendor/third\n\turl = ' + THIRD + "\n"
+    gitmodules = repo / ".gitmodules"
+    gitmodules.write_text(
+        '[submodule "dependency"]\n\tpath = vendor/dependency\n\turl = '
+        + target
+        + "\n"
     )
-    env, marker = transport_sentinel(tmp_path)
+    original = gitmodules.read_bytes()
+    env, marker = git_invocation_sentinel(tmp_path)
 
     result = run(GUARD, "submodule", "update", "--init", cwd=repo, env=env)
 
     assert result.returncode == 77
     assert not marker.exists()
+    assert gitmodules.read_bytes() == original
+    assert not (repo / "vendor" / "dependency").exists()
 
 
-def test_submodule_update_rejects_unauthorized_local_url_override(tmp_path: Path) -> None:
+@pytest.mark.parametrize("target", [BACKEND, FRONTEND, THIRD])
+def test_submodule_update_is_denied_without_changing_local_url_override(
+    tmp_path: Path, target: str
+) -> None:
     repo = tmp_path / "repo"
     init_repo(repo)
-    subprocess.run(["git", "-C", repo, "config", "submodule.frontend.url", THIRD], check=True)
-    env, marker = transport_sentinel(tmp_path)
+    subprocess.run(
+        ["git", "-C", repo, "config", "submodule.dependency.url", target], check=True
+    )
+    before = run(
+        "git", "-C", repo, "config", "submodule.dependency.url", cwd=repo
+    ).stdout
+    env, marker = git_invocation_sentinel(tmp_path)
 
     result = run(GUARD, "submodule", "update", "--init", cwd=repo, env=env)
 
     assert result.returncode == 77
     assert not marker.exists()
+    after = run("git", "-C", repo, "config", "submodule.dependency.url", cwd=repo).stdout
+    assert after == before
 
 
 def test_submodule_foreach_is_rejected_as_an_unguarded_command_surface(tmp_path: Path) -> None:

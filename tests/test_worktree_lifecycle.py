@@ -19,7 +19,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path]:
     remote = tmp_path / "remote.git"
     base = tmp_path / "backend"
     git("init", "--bare", str(remote), cwd=tmp_path)
-    git("init", "-b", "main", str(base), cwd=tmp_path)
+    git("init", "-b", "dev", str(base), cwd=tmp_path)
     git("config", "user.email", "test@example.com", cwd=base)
     git("config", "user.name", "Test User", cwd=base)
     (base / "README.md").write_text("baseline\n")
@@ -32,7 +32,7 @@ def repository(tmp_path: Path) -> tuple[Path, Path]:
     git("add", ".project-policy/worktree-lifecycle", cwd=base)
     git("commit", "-m", "add lifecycle helper", cwd=base)
     git("remote", "add", "origin", str(remote), cwd=base)
-    git("push", "-u", "origin", "main", cwd=base)
+    git("push", "-u", "origin", "dev", cwd=base)
     return base, remote
 
 
@@ -76,17 +76,17 @@ def test_create_rejects_dirty_base(repository: tuple[Path, Path]) -> None:
     assert "dirty" in result.stderr.lower()
 
 
-def test_create_rejects_base_not_on_main(repository: tuple[Path, Path]) -> None:
+def test_create_rejects_base_not_on_dev(repository: tuple[Path, Path]) -> None:
     base, _ = repository
     git("switch", "-c", "unrelated/branch", cwd=base)
 
     result = helper(base, "create", "65", "slug", "p0")
 
     assert result.returncode != 0
-    assert "must be on main" in result.stderr
+    assert "must be on dev" in result.stderr
 
 
-def test_create_rejects_base_not_equal_to_origin_main(
+def test_create_rejects_base_not_equal_to_origin_dev(
     repository: tuple[Path, Path],
 ) -> None:
     base, _ = repository
@@ -95,7 +95,7 @@ def test_create_rejects_base_not_equal_to_origin_main(
     git("commit", "-m", "local ahead", cwd=base)
     result = helper(base, "create", "65", "slug", "p0")
     assert result.returncode != 0
-    assert "origin/main" in result.stderr
+    assert "origin/dev" in result.stderr
 
 
 def test_create_rejects_an_existing_branch_for_same_issue(
@@ -177,21 +177,21 @@ def test_cleanup_removes_only_clean_fully_integrated_work(
     git("commit", "-m", "integrated", cwd=worktree)
     issue_commit = git("rev-parse", "HEAD", cwd=worktree).stdout.strip()
     integration = tmp_path / "integration"
-    git("clone", "-b", "main", str(remote), str(integration), cwd=tmp_path)
+    git("clone", "-b", "dev", str(remote), str(integration), cwd=tmp_path)
     git("config", "user.email", "integrator@example.com", cwd=integration)
     git("config", "user.name", "Integrator", cwd=integration)
     git("fetch", str(base), "p0/65-slug", cwd=integration)
     git("cherry-pick", "FETCH_HEAD", cwd=integration)
     assert git("rev-parse", "HEAD", cwd=integration).stdout.strip() != issue_commit
-    git("push", "origin", "main", cwd=integration)
-    git("fetch", "origin", "main", cwd=base)
+    git("push", "origin", "dev", cwd=integration)
+    git("fetch", "origin", "dev", cwd=base)
 
     result = helper(base, "cleanup", "65")
 
     assert result.returncode == 0, result.stderr
     assert not worktree.exists()
     assert "p0/65-slug" not in git("branch", "--format=%(refname:short)", cwd=base).stdout
-    assert git("rev-parse", "origin/main", cwd=base).stdout
+    assert git("rev-parse", "origin/dev", cwd=base).stdout
     assert remote.exists()
 
 

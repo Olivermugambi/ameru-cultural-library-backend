@@ -52,11 +52,11 @@ create_worktree() {
   [[ "$milestone" =~ ^[a-z0-9]+([.-][a-z0-9]+)*$ ]] || die "milestone must be a lowercase identifier"
   validate_root
 
-  [[ "$(git -C "$repo_root" branch --show-current)" == "main" ]] || die "base checkout must be on main"
+  [[ "$(git -C "$repo_root" branch --show-current)" == "dev" ]] || die "base checkout must be on dev"
   [[ -z "$(git -C "$repo_root" status --porcelain)" ]] || die "base checkout is dirty"
-  git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/main || die "origin/main is unavailable; synchronize it first"
-  [[ "$(git -C "$repo_root" rev-parse main)" == "$(git -C "$repo_root" rev-parse origin/main)" ]] ||
-    die "main must exactly match the updated origin/main"
+  git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/dev || die "origin/dev is unavailable; synchronize it first"
+  [[ "$(git -C "$repo_root" rev-parse dev)" == "$(git -C "$repo_root" rev-parse origin/dev)" ]] ||
+    die "dev must exactly match the updated origin/dev"
 
   local matches branch target
   matches="$(git -C "$repo_root" for-each-ref --format='%(refname:short)' refs/heads | awk -v n="$issue" '$0 ~ "/" n "-"')"
@@ -66,7 +66,7 @@ create_worktree() {
   [[ ! -e "$target" ]] || die "worktree path already exists: $target"
 
   mkdir -p "$worktree_root"
-  git -C "$repo_root" worktree add -b "$branch" "$target" origin/main
+  git -C "$repo_root" worktree add -b "$branch" "$target" origin/dev
   echo "created $branch at $target"
 }
 
@@ -84,10 +84,10 @@ cleanup_worktree() {
   [[ "$branch" =~ /${issue}- ]] || die "worktree branch does not map to issue $issue"
   status="$(git -C "$target" status --porcelain)"
   [[ -z "$status" ]] || die "worktree contains uncommitted work; cleanup refused"
-  git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/main || die "origin/main is unavailable; synchronize it first"
-  cherry="$(git -C "$repo_root" cherry origin/main "$branch")"
+  git -C "$repo_root" show-ref --verify --quiet refs/remotes/origin/dev || die "origin/dev is unavailable; synchronize it first"
+  cherry="$(git -C "$repo_root" cherry origin/dev "$branch")"
   if grep -q '^+' <<<"$cherry"; then
-    die "branch commits are not represented in origin/main; cleanup refused"
+    die "branch commits are not represented in origin/dev; cleanup refused"
   fi
 
   git -C "$repo_root" worktree remove "$target"

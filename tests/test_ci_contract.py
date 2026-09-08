@@ -1,13 +1,18 @@
 from __future__ import annotations
 
+import os
+import shutil
+import subprocess
 from pathlib import Path
 from typing import Any
 
+import pytest
 import yaml
 
 ROOT = Path(__file__).parents[1]
 WORKFLOW_PATH = ROOT / ".github" / "workflows" / "ci.yml"
 REQUIRED_STEP_NAMES = [
+    "Validate pull request base",
     "Checkout",
     "Set up Python",
     "Install dependencies",
@@ -37,11 +42,11 @@ def step_by_name(job: dict[str, Any], name: str) -> dict[str, Any]:
     return next(step for step in job["steps"] if step.get("name") == name)
 
 
-def test_ci_runs_for_pull_requests_and_main_pushes() -> None:
+def test_ci_runs_for_pull_requests_and_dev_pushes() -> None:
     triggers = workflow_triggers(load_workflow())
 
     assert "pull_request" in triggers
-    assert triggers["push"]["branches"] == ["main"]
+    assert triggers["push"]["branches"] == ["dev"]
 
 
 def test_required_check_name_permissions_and_concurrency_are_stable() -> None:
@@ -63,6 +68,11 @@ def test_required_job_contains_every_blocking_gate_in_order() -> None:
     assert [step.get("name") for step in job["steps"]] == REQUIRED_STEP_NAMES
     assert job["runs-on"] == "ubuntu-latest"
 
+    base_gate = step_by_name(job, "Validate pull request base")["run"]
+    assert "GITHUB_EVENT_NAME" in base_gate
+    assert "GITHUB_BASE_REF" in base_gate
+    assert '!= "dev"' in base_gate
+
     install = step_by_name(job, "Install dependencies")["run"]
     assert "python -m pip install -e '.[dev]'" in install
     assert "python -m pip check" in install
@@ -73,12 +83,41 @@ def test_required_job_contains_every_blocking_gate_in_order() -> None:
 
     assert step_by_name(job, "Ruff")["run"] == "python -m ruff check ."
     assert step_by_name(job, "Shell syntax")["run"] == (
-        "bash -n .project-policy/git-guard .project-policy/install.sh .githooks/pre-push"
+        "bash -n .project-policy/git-guard .project-policy/install.sh "
+        ".project-policy/worktree-lifecycle .githooks/pre-push"
     )
     assert step_by_name(job, "Repository boundary")["run"] == (
         "python -m pytest tests/test_repository_boundary.py"
     )
     assert step_by_name(job, "Full test suite")["run"] == "python -m pytest"
+
+
+@pytest.mark.parametrize(
+    ("event_name", "base_ref", "expected_code"),
+    [
+        ("pull_request", "main", 1),
+        ("pull_request", "release-candidate", 1),
+        ("pull_request", "dev", 0),
+        ("push", "", 0),
+    ],
+)
+def test_base_policy_gate_rejects_only_non_dev_pull_requests(
+    event_name: str, base_ref: str, expected_code: int
+) -> None:
+    gate = step_by_name(required_job(load_workflow()), "Validate pull request base")["run"]
+    environment = os.environ | {
+        "GITHUB_EVENT_NAME": event_name,
+        "GITHUB_BASE_REF": base_ref,
+    }
+
+    shell = shutil.which("bash") or "bash"
+    git_bash = Path(os.environ.get("ProgramFiles", "")) / "Git" / "bin" / "bash.exe"
+    if os.name == "nt" and git_bash.is_file():
+        shell = str(git_bash)
+
+    result = subprocess.run([shell, "-c", gate], env=environment, check=False)
+
+    assert result.returncode == expected_code
 
 
 def test_required_job_has_no_non_blocking_escape_hatch() -> None:

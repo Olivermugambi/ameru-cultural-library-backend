@@ -9,6 +9,7 @@ Dedicated branch
 
 - Worktree path:
 - Branch name:
+- [ ] PR targets `dev`; PRs targeting `main` are prohibited
 
 ## Summary and goal
 
@@ -54,7 +55,7 @@ checked AC, link its evidence or name the exact validation recorded below.
 
 ## Final rebase and merge readiness
 
-- [ ] Rebased onto current `main`
+- [ ] Rebased onto current `dev`
 - [ ] Complete validation rerun after the final rebase
 - [ ] Required CI passed on the final PR head SHA
 - [ ] Adversarial review findings are all resolved

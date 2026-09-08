@@ -2,7 +2,7 @@ name: CI
 
 on:
   push:
-    branches: [main]
+    branches: [dev]
   pull_request:
 
 permissions:
@@ -17,6 +17,12 @@ jobs:
     name: P0 required checks
     runs-on: ubuntu-latest
     steps:
+      - name: Validate pull request base
+        run: |
+          if [ "$GITHUB_EVENT_NAME" = "pull_request" ] && [ "$GITHUB_BASE_REF" != "dev" ]; then
+            echo "Code pull requests must target dev; received: $GITHUB_BASE_REF" >&2
+            exit 1
+          fi
       - name: Checkout
         uses: actions/checkout@v4
         with:
@@ -37,7 +43,7 @@ jobs:
       - name: Ruff
         run: python -m ruff check .
       - name: Shell syntax
-        run: bash -n .project-policy/git-guard .project-policy/install.sh .githooks/pre-push
+        run: bash -n .project-policy/git-guard .project-policy/install.sh .project-policy/worktree-lifecycle .githooks/pre-push
       - name: Repository boundary
         run: python -m pytest tests/test_repository_boundary.py
       - name: Full test suite

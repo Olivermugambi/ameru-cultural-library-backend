@@ -128,7 +128,8 @@ def missing_pr_contracts(template: str) -> set[str]:
         "Any remaining manual verification has a linked follow-up issue; otherwise, N/A",
         "Any out-of-scope blockers have a linked issue; otherwise, N/A",
         "Any blocking prerequisite stopped implementation; otherwise, N/A",
-        "Rebased onto current `main`",
+        "PR targets `dev`; PRs targeting `main` are prohibited",
+        "Rebased onto current `dev`",
         "Complete validation rerun after the final rebase",
         "Rebase and merge",
     }
